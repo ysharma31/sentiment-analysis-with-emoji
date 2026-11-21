@@ -87,6 +87,12 @@ pre{background:var(--surface-2);border-radius:10px;padding:12px;overflow-x:auto;
 .thinking .bar{height:12px;border-radius:6px;background:linear-gradient(90deg,var(--surface-2),var(--line),var(--surface-2));background-size:200% 100%;animation:sh 1.2s linear infinite}
 @keyframes sh{to{background-position:-200% 0}}
 @media (prefers-reduced-motion:reduce){.thinking .bar{animation:none}}
+select{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 10px}
+.mtag{font:500 11.5px/1 var(--f-mono);padding:4px 6px;border-radius:6px;background:var(--surface-2);color:var(--muted);white-space:nowrap}
+.mtag.fallback{color:var(--mix);background:var(--mix-bg)}
+.batch{display:grid;gap:8px;padding-top:12px;border-top:1px solid var(--line)}
+.prog{height:6px;border-radius:3px;background:var(--surface-2);overflow:hidden}
+.prog i{display:block;height:100%;width:0;background:var(--accent);transition:width .3s}
 /* sheet */
 .sheet-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px}
 .tbl{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
@@ -121,11 +127,22 @@ td.sent{max-width:340px;overflow-wrap:anywhere}
         <input type="text" id="context" placeholder="Who is talking to whom, platform, previous message">
         <span class="hint">Try the same message with and without context to see if the verdict shifts.</span>
       </div>
+      <div class="field">
+        <label for="model">Model</label>
+        <select id="model"></select>
+        <span class="hint">Each model gets its own sheet in the Excel download.</span>
+      </div>
       <div class="row">
         <button class="primary" id="go" type="submit">Analyze and add to sheet</button>
         <span class="hint">⌘/Ctrl + Enter</span>
       </div>
       <div class="status" id="status" role="status"></div>
+      <div class="batch">
+        <h2>Test set</h2>
+        <span class="hint" id="batchInfo">Run the 25 test sentences with the chosen model, so models can be compared message by message.</span>
+        <div class="row"><button type="button" id="runSet">Run test set with this model</button><button type="button" id="stopSet" hidden>Stop</button></div>
+        <div class="prog" id="prog" hidden><i></i></div>
+      </div>
       <div class="sec">
         <h2>Try one</h2>
         <div class="row" id="examples"></div>
@@ -144,13 +161,15 @@ td.sent{max-width:340px;overflow-wrap:anywhere}
         <span class="hint" id="count">Loading saved analyses…</span>
       </div>
       <div class="row">
+        <label for="filter" class="muted" style="font-weight:400">Show</label>
+        <select id="filter"><option value="">All models</option></select>
         <button id="xlsx" type="button">Download Excel (.xlsx)</button>
       </div>
     </div>
     <div class="tbl">
       <table>
-        <thead><tr><th>#</th><th>Message</th><th>Verdict</th><th>Polarity</th><th>Conf.</th><th>Sarcasm</th><th>Ambiguous</th><th>What it really means</th><th></th></tr></thead>
-        <tbody id="rows"><tr><td colspan="9" class="muted">No analyses yet. Type a message above to add the first row.</td></tr></tbody>
+        <thead><tr><th>#</th><th>Model</th><th>Message</th><th>Verdict</th><th>Polarity</th><th>Conf.</th><th>Sarcasm</th><th>Ambiguous</th><th>What it really means</th><th></th></tr></thead>
+        <tbody id="rows"><tr><td colspan="10" class="muted">No analyses yet. Type a message above to add the first row.</td></tr></tbody>
       </table>
     </div>
   </section>
@@ -160,6 +179,19 @@ td.sent{max-width:340px;overflow-wrap:anywhere}
 <script>
 const SYSTEM_PROMPT = __SYSTEM_PROMPT__;
 const EXAMPLES = ["I got the job 😭","I got the job 😢","This meme has me dead 💀💀💀","Sure, do whatever you want 🙂","Okay. 😐","My code finally works and I have no idea why 🤡🎉"];
+const MODELS = [
+  { id: "claude-opus-5-5", label: "Claude Opus 5.5", tier: "complex" },
+  { id: "claude-fable-5-2", label: "Claude Fable 5.2", tier: "complex" },
+  { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", tier: "default" },
+  { id: "claude-haiku-5-5", label: "Claude Haiku 5.5", tier: "quick" },
+];
+const TIER_NAMES = { complex: "most capable", default: "standard", quick: "fastest" };
+// Label for the model that actually answered a row. A named model can fall back to its tier silently.
+function modelLabel(rec){
+  if (rec.model) return MODELS.find(m => m.id === rec.model)?.label || rec.model;
+  if (rec.modelRequested) return `Fallback (${TIER_NAMES[rec.modelTier] || rec.modelTier || "unknown"} tier)`;
+  return "Unknown model";
+}
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const SENTS = ["positive","negative","mixed","neutral"];
@@ -190,7 +222,7 @@ function renderResult(rec){
   }).join("");
   const alts = (a.alternative_interpretations || []).map(x => `<li>${esc(x.reading)} <span class="muted">(${Math.round(num(x.likelihood)*100)}%)</span></li>`).join("");
   $("#result").innerHTML = `
-    <div><p class="quote">“${esc(rec.sentence)}”</p>${rec.context ? `<div class="ctx">Context: ${esc(rec.context)}</div>` : ""}</div>
+    <div style="display:grid;gap:6px"><div><span class="mtag ${rec.model ? "" : "fallback"}">${esc(modelLabel(rec))}</span></div><p class="quote">“${esc(rec.sentence)}”</p>${rec.context ? `<div class="ctx">Context: ${esc(rec.context)}</div>` : ""}</div>
     <div class="verdict"><span class="pill ${sentClass(v.intended_sentiment)}">${esc(v.intended_sentiment || "unknown")}</span><p class="summary">${esc(v.one_line_summary)}</p></div>
     <div class="meter"><div class="track"><span class="dot" style="left:${(pol+1)*50}%"></span></div><div class="scale"><span>−1 very negative</span><span>0</span><span>+1 very positive</span></div></div>
     <div class="stats">
@@ -210,13 +242,24 @@ function renderResult(rec){
     <details><summary>Full JSON response</summary><pre>${esc(JSON.stringify(r, null, 2))}</pre></details>`;
 }
 
+function renderFilter(){
+  const labels = [...new Set(rows.map(modelLabel))];
+  const cur = $("#filter").value;
+  $("#filter").innerHTML = `<option value="">All models</option>` + labels.map(l => `<option ${l===cur?"selected":""}>${esc(l)}</option>`).join("");
+}
 function renderRows(){
-  $("#count").textContent = rows.length ? `${rows.length} ${rows.length===1?"analysis":"analyses"} saved. Click a row to see it above.` : "No analyses saved yet.";
-  if (!rows.length){ $("#rows").innerHTML = `<tr><td colspan="9" class="muted">No analyses yet. Type a message above to add the first row.</td></tr>`; return; }
-  $("#rows").innerHTML = rows.map((rec, i) => {
+  renderFilter();
+  const f = $("#filter").value;
+  const view = f ? rows.filter(r => modelLabel(r) === f) : rows;
+  const nModels = new Set(rows.map(modelLabel)).size;
+  $("#count").textContent = rows.length ? `${rows.length} ${rows.length===1?"analysis":"analyses"} from ${nModels} ${nModels===1?"model":"models"}. Click a row to see it above.` : "No analyses saved yet.";
+  updateBatchInfo();
+  if (!view.length){ $("#rows").innerHTML = `<tr><td colspan="10" class="muted">No analyses yet. Type a message above to add the first row.</td></tr>`; return; }
+  $("#rows").innerHTML = view.map((rec, i) => {
     const r = rec.response || {}, v = r.final_verdict || {};
     return `<tr data-id="${esc(rec.id)}" class="${rec.id===selectedId?"sel":""}">
-      <td class="num">${rows.length - i}</td>
+      <td class="num">${view.length - i}</td>
+      <td><span class="mtag ${rec.model ? "" : "fallback"}">${esc(modelLabel(rec))}</span></td>
       <td class="sent">${esc(rec.sentence)}${rec.context?`<div class="muted" style="font-size:12px">${esc(rec.context)}</div>`:""}</td>
       <td><span class="tag ${sentClass(v.intended_sentiment)}">${esc(v.intended_sentiment||"?")}</span></td>
       <td class="num">${fmtPol(num(v.polarity_score))}</td>
@@ -233,6 +276,7 @@ function select(id){
   selectedId = id; renderResult(rec); renderRows();
 }
 
+$("#filter").addEventListener("change", renderRows);
 $("#rows").addEventListener("click", async e => {
   const del = e.target.closest("[data-del]");
   if (del){
@@ -250,10 +294,36 @@ function normalize(resp, sentence){
   return resp;
 }
 
-async function analyze(sentence, context){
+function parseJSON(text){
+  const t = text.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
+  const a = t.indexOf("{"), b = t.lastIndexOf("}");
+  if (a < 0 || b < a) throw new Error("The reply didn't contain JSON.");
+  return JSON.parse(t.slice(a, b + 1));
+}
+async function analyze(sentence, context, m){
   const user = `Analyze the sentiment of the following message.\n\nMessage: "${sentence}"\n\nOptional context (leave blank if none): ${context || ""}`;
   const input = `${SYSTEM_PROMPT}\n\n---\n\n${user}\n\nReturn only the JSON object.`;
-  return normalize(await sample.json(input, { modelTier: "default" }), sentence);
+  const res = await sample(input, { model: m.id, modelTier: m.tier });
+  return {
+    response: normalize(parseJSON(res.text), sentence),
+    model: res.modelApplied || null, modelRequested: m.id, modelTier: res.modelTierApplied || m.tier,
+  };
+}
+const chosenModel = () => MODELS.find(m => m.id === $("#model").value) || MODELS[0];
+
+async function saveRec(rec){
+  let id = "local-" + Date.now() + Math.random().toString(36).slice(2,6);
+  if (col){
+    try { const ref = col.doc(); await ref.set(rec); return { id: ref.id, saved: true }; }
+    catch(err){ rows.unshift({id, ...rec}); renderRows(); return { id, saved: false, err }; }
+  }
+  rows.unshift({id, ...rec}); renderRows(); return { id, saved: false };
+}
+function failMsg(err){
+  return err.code === "rate_limited" ? "Too many requests right now. Wait a minute and try again."
+    : err.code === "not_granted" ? "Analysis needs your permission. Allow Claude for this page in its permissions menu."
+    : err.code === "sampling_disabled" ? "Your access to this model is turned off. Pick another model."
+    : "Analysis failed: " + (err.message || err.code || err);
 }
 
 $("#form").addEventListener("submit", async e => {
@@ -263,33 +333,83 @@ $("#form").addEventListener("submit", async e => {
   if (!sample){ setStatus("Analysis isn't available in this view. Open the page on claude.ai while signed in.", true); return; }
   $("#go").disabled = true; setStatus("Claude is reading the message…");
   $("#result").innerHTML = `<p class="quote">“${esc(sentence)}”</p><div class="thinking"><div class="bar" style="width:70%"></div><div class="bar"></div><div class="bar" style="width:85%"></div><div class="bar" style="width:55%"></div></div>`;
+  const m = chosenModel();
   try {
-    const response = await analyze(sentence, context);
-    const rec = { sentence, context, createdAt: new Date().toISOString(), source: "app", response };
-    let id = "local-" + Date.now();
-    if (col){
-      try { const ref = col.doc(); await ref.set(rec); id = ref.id; setStatus("Added to the sheet."); }
-      catch(err){ setStatus("Analyzed, but couldn't save to the sheet: " + (err.message||err.code), true); rows.unshift({id, ...rec}); }
-    } else { rows.unshift({id, ...rec}); setStatus("Analyzed. Saving isn't available here, so this row lasts until you leave the page."); }
+    const out = await analyze(sentence, context, m);
+    const rec = { sentence, context, createdAt: new Date().toISOString(), source: "app", ...out };
+    const { id, saved, err } = await saveRec(rec);
+    const fb = rec.model ? "" : ` ${m.label} wasn't available, so another model answered. It's filed under "${modelLabel(rec)}".`;
+    setStatus((saved ? "Added to the sheet." : err ? "Analyzed, but couldn't save: " + (err.message||err.code) : "Analyzed. Saving isn't available here.") + fb, !rec.model || !!err);
     selectedId = id; renderResult({id, ...rec}); renderRows();
   } catch(err){
-    const msg = err.code === "rate_limited" ? "Too many requests right now. Wait a minute and try again."
-      : err.code === "not_granted" ? "Analysis needs your permission. Allow Claude for this page in its permissions menu."
-      : "Analysis failed: " + (err.message || err.code || err);
+    const msg = failMsg(err);
     setStatus(msg, true);
     $("#result").innerHTML = `<div class="empty">${esc(msg)}</div>`;
   } finally { $("#go").disabled = false; }
 });
 
+$("#model").innerHTML = MODELS.map(m => `<option value="${m.id}">${esc(m.label)}</option>`).join("");
+try { const saved = localStorage.getItem("esl-model"); if (MODELS.some(m => m.id === saved)) $("#model").value = saved; } catch {}
+$("#model").addEventListener("change", () => { try { localStorage.setItem("esl-model", $("#model").value); } catch {} });
 $("#sentence").addEventListener("keydown", e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) $("#form").requestSubmit(); });
 $("#examples").innerHTML = EXAMPLES.map(s => `<button type="button" class="chip">${esc(s)}</button>`).join("");
 $("#examples").addEventListener("click", e => { const b = e.target.closest(".chip"); if (b){ $("#sentence").value = b.textContent; $("#sentence").focus(); } });
 
-function sheetRows(){
-  return rows.slice().reverse().map((rec, i) => {
+// ---- test set batch ----
+let stopBatch = false, batchRunning = false;
+function testSet(){ return rows.filter(r => r.source === "seed").sort((a,b) => (a.createdAt||"").localeCompare(b.createdAt||"")); }
+function todo(m){
+  const done = new Set(rows.filter(r => r.model === m.id).map(r => r.sentence + "\u0000" + (r.context||"")));
+  return testSet().filter(r => !done.has(r.sentence + "\u0000" + (r.context||"")));
+}
+function updateBatchInfo(){
+  if (batchRunning) return;
+  const m = chosenModel(), total = testSet().length, left = todo(m).length;
+  $("#batchInfo").textContent = !total ? "The test set isn't loaded yet."
+    : left ? `${m.label} has ${total - left} of ${total} test sentences done. Running adds the ${left} missing.` : `${m.label} has analyzed all ${total} test sentences.`;
+  $("#runSet").disabled = !left || !sample;
+}
+$("#model").addEventListener("change", updateBatchInfo);
+$("#stopSet").addEventListener("click", () => { stopBatch = true; $("#stopSet").disabled = true; $("#batchInfo").textContent = "Stopping after the current sentence…"; });
+$("#runSet").addEventListener("click", async () => {
+  const m = chosenModel(), list = todo(m);
+  if (!list.length || !sample) return;
+  batchRunning = true; stopBatch = false;
+  $("#runSet").hidden = true; $("#stopSet").hidden = false; $("#stopSet").disabled = false; $("#go").disabled = true; $("#prog").hidden = false;
+  let ok = 0, fallback = 0;
+  for (let i = 0; i < list.length && !stopBatch; i++){
+    const src = list[i];
+    $("#batchInfo").textContent = `${m.label}: ${i + 1} of ${list.length} · “${src.sentence}”`;
+    $("#prog i").style.width = (i / list.length * 100) + "%";
+    try {
+      const out = await analyze(src.sentence, src.context, m);
+      const rec = { sentence: src.sentence, context: src.context || "", createdAt: new Date().toISOString(), source: "test-set", category: src.category || "", ...out };
+      await saveRec(rec); ok++;
+      if (!rec.model){ fallback++; stopBatch = true; setStatus(`${m.label} isn't available, so another model answered. Stopped so the ${m.label} sheet stays clean.`, true); }
+    } catch(err){
+      setStatus(failMsg(err) + ` Stopped at “${src.sentence}”. Run again to continue.`, true);
+      break;
+    }
+  }
+  $("#prog i").style.width = "100%";
+  batchRunning = false; $("#runSet").hidden = false; $("#stopSet").hidden = true; $("#go").disabled = false;
+  setTimeout(() => { $("#prog").hidden = true; }, 800);
+  if (!fallback && ok) setStatus(`Added ${ok} ${m.label} ${ok===1?"analysis":"analyses"} to the sheet.`);
+  updateBatchInfo();
+});
+
+// ---- Excel export: one sheet per model, plus a comparison ----
+function sheetName(label, used){
+  let n = label.replace(/[\[\]:*?\/\\]/g, "").slice(0, 31) || "Sheet", base = n, k = 2;
+  while (used.has(n)) n = base.slice(0, 28) + " " + k++;
+  used.add(n); return n;
+}
+function sheetRows(list){
+  return list.slice().reverse().map((rec, i) => {
     const r = rec.response || {}, v = r.final_verdict || {}, t = r.text_emoji_interaction || {}, a = r.ambiguity || {};
     return {
       "#": i + 1,
+      "Model": modelLabel(rec), "Model id": rec.model || "", "Requested model": rec.modelRequested || "",
       "Date": rec.createdAt ? rec.createdAt.replace("T"," ").slice(0,16) : "",
       "Message": rec.sentence, "Context": rec.context || "",
       "Intended sentiment": v.intended_sentiment || "", "Polarity (-1..1)": num(v.polarity_score), "Confidence (0..1)": num(v.confidence),
@@ -311,10 +431,34 @@ $("#xlsx").addEventListener("click", async () => {
   if (!rows.length){ setStatus("The sheet is empty. Analyze a message first.", true); return; }
   if (!window.XLSX){ setStatus("The Excel library didn't load. Reload the page and try again.", true); return; }
   if (!downloads){ setStatus("Downloads aren't available in this view.", true); return; }
-  const ws = XLSX.utils.json_to_sheet(sheetRows());
-  ws["!cols"] = [4,16,42,24,12,10,10,10,10,12,12,14,46,30,46,60,40,30,40,12,12,12,24,40].map(w => ({wch:w}));
-  ws["!freeze"] = {xSplit:0, ySplit:1};
-  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Analyses");
+  const wb = XLSX.utils.book_new(), used = new Set();
+  // Sheets in the order each model first appeared (oldest first).
+  const byModel = new Map();
+  rows.slice().reverse().forEach(r => { const l = modelLabel(r); if (!byModel.has(l)) byModel.set(l, []); byModel.get(l).push(r); });
+  for (const [label, list] of byModel){
+    const ws = XLSX.utils.json_to_sheet(sheetRows(list.slice().reverse()));
+    ws["!cols"] = [4,18,18,18,16,42,24,12,10,10,10,10,12,12,14,46,30,46,60,40,30,40,12,12,12,24,40].map(w => ({wch:w}));
+    XLSX.utils.book_append_sheet(wb, ws, sheetName(label, used));
+  }
+  if (byModel.size > 1){
+    const labels = [...byModel.keys()], bySent = new Map();
+    rows.slice().reverse().forEach(r => {
+      const k = r.sentence + "\u0000" + (r.context||"");
+      if (!bySent.has(k)) bySent.set(k, { "Message": r.sentence, "Context": r.context || "" });
+      const v = r.response?.final_verdict || {}, row = bySent.get(k), l = modelLabel(r);
+      row[`${l}: verdict`] = v.intended_sentiment || ""; row[`${l}: polarity`] = num(v.polarity_score);
+      row[`${l}: confidence`] = num(v.confidence); row[`${l}: sarcasm`] = r.response?.text_emoji_interaction?.sarcasm_or_irony_detected ? "yes" : "no";
+    });
+    const cmp = [...bySent.values()].map(row => {
+      const verdicts = labels.map(l => row[`${l}: verdict`]).filter(Boolean);
+      row["Models agree"] = verdicts.length < 2 ? "" : (new Set(verdicts).size === 1 ? "yes" : "no");
+      return row;
+    });
+    const header = ["Message","Context", ...labels.flatMap(l => [`${l}: verdict`,`${l}: polarity`,`${l}: confidence`,`${l}: sarcasm`]), "Models agree"];
+    const ws = XLSX.utils.json_to_sheet(cmp, { header });
+    ws["!cols"] = header.map((h,i) => ({wch: i===0 ? 44 : i===1 ? 20 : 16}));
+    XLSX.utils.book_append_sheet(wb, ws, sheetName("Comparison", used));
+  }
   const data = XLSX.write(wb, {bookType:"xlsx", type:"array"});
   try {
     await downloads.save({ filename: `emoji-sentiment-analyses-${new Date().toISOString().slice(0,10)}.xlsx`, data: new Blob([data], {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}) });
@@ -327,6 +471,7 @@ $("#xlsx").addEventListener("click", async () => {
   if (!c?.use){ $("#count").textContent = "Open this page on claude.ai to analyze and save messages."; return; }
   [sample, downloads, db] = await Promise.all([c.use("sample"), c.use("downloads"), c.use("db")]);
   if (!sample) setStatus("Analysis isn't available in this view.", true);
+  updateBatchInfo();
   if (!downloads) $("#xlsx").disabled = true;
   if (!db){ $("#count").textContent = "Saving isn't available in this view. New analyses last until you leave the page."; return; }
   col = db.collection("analyses");
