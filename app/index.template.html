@@ -1,0 +1,343 @@
+<title>Emoji Sentiment Lab</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: composer + live verdict side by side, the running analysis sheet full-width beneath */
+:root{
+  --bg:#f3f4f8; --surface:#ffffff; --surface-2:#eceef5; --fg:#161a2b; --muted:#5c6178; --line:#d9dce8;
+  --accent:#3a45c9; --accent-fg:#ffffff;
+  --pos:#0f8a6a; --neg:#c23b2e; --mix:#b9770e; --neu:#5f6680;
+  --pos-bg:#e1f4ee; --neg-bg:#fbe6e3; --mix-bg:#fbf0dc; --neu-bg:#e8eaf1;
+  --emoji:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji";
+  --f-display:"Bricolage Grotesque",ui-sans-serif,system-ui,sans-serif,var(--emoji);
+  --f-body:"Instrument Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif,var(--emoji);
+  --f-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace,var(--emoji);
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#10121c; --surface:#181b29; --surface-2:#21253a; --fg:#e8eaf4; --muted:#9aa0bb; --line:#2c3150;
+  --accent:#8b94ff; --accent-fg:#10121c;
+  --pos:#4fd1aa; --neg:#ff8577; --mix:#f2b452; --neu:#a3a9c4;
+  --pos-bg:#123329; --neg-bg:#3a1a17; --mix-bg:#3a2c12; --neu-bg:#262a3d; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#10121c; --surface:#181b29; --surface-2:#21253a; --fg:#e8eaf4; --muted:#9aa0bb; --line:#2c3150;
+  --accent:#8b94ff; --accent-fg:#10121c;
+  --pos:#4fd1aa; --neg:#ff8577; --mix:#f2b452; --neu:#a3a9c4;
+  --pos-bg:#123329; --neg-bg:#3a1a17; --mix-bg:#3a2c12; --neu-bg:#262a3d; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--f-body)}
+.wrap{max-width:1180px;margin:0 auto;padding-block:28px 56px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:24px}
+header{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px 24px}
+h1{font:700 clamp(26px,4vw,36px)/1.1 var(--f-display);margin:0;letter-spacing:-.01em;text-wrap:balance}
+h2{font:600 13px/1 var(--f-body);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0}
+.sub{color:var(--muted);margin:0;max-width:60ch}
+.top{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:24px;align-items:start}
+@media (max-width:860px){.top{grid-template-columns:minmax(0,1fr)}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px;display:grid;gap:16px;min-width:0}
+label{font-weight:600;font-size:13px}
+.field{display:grid;gap:6px}
+textarea,input[type=text]{width:100%;font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;resize:vertical}
+textarea{min-height:92px;font-size:18px}
+textarea:focus,input:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.hint{color:var(--muted);font-size:12.5px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button{font:600 14px/1 var(--f-body);border-radius:10px;border:1px solid var(--line);background:var(--surface-2);color:var(--fg);padding:10px 14px;cursor:pointer}
+button.primary{background:var(--accent);color:var(--accent-fg);border-color:transparent;padding:12px 18px}
+button:disabled{opacity:.55;cursor:not-allowed}
+.chip{font:400 13px/1.2 var(--f-body);padding:7px 10px;border-radius:999px;background:var(--surface-2);border:1px solid transparent}
+.chip:hover{border-color:var(--line)}
+.status{font-size:13px;color:var(--muted);min-height:1.3em}
+.status.err{color:var(--neg)}
+/* result */
+.empty{color:var(--muted);padding:28px 4px;text-align:left}
+.quote{font:500 clamp(20px,2.6vw,26px)/1.3 var(--f-display);margin:0;overflow-wrap:anywhere}
+.ctx{color:var(--muted);font-size:13px;margin-top:4px}
+.verdict{display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:center}
+.pill{font:700 13px/1 var(--f-body);text-transform:uppercase;letter-spacing:.08em;padding:9px 12px;border-radius:999px}
+.s-positive{color:var(--pos);background:var(--pos-bg)} .s-negative{color:var(--neg);background:var(--neg-bg)}
+.s-mixed{color:var(--mix);background:var(--mix-bg)} .s-neutral{color:var(--neu);background:var(--neu-bg)}
+.summary{font-size:16px;margin:0}
+.meter{display:grid;gap:6px}
+.meter .track{position:relative;height:10px;border-radius:999px;background:linear-gradient(90deg,var(--neg),var(--neu-bg) 50%,var(--pos))}
+.meter .dot{position:absolute;top:50%;width:18px;height:18px;border-radius:50%;background:var(--surface);border:3px solid var(--fg);transform:translate(-50%,-50%)}
+.meter .scale{display:flex;justify-content:space-between;font:400 11px/1 var(--f-mono);color:var(--muted)}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+@media (max-width:520px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.stat{background:var(--surface-2);border-radius:10px;padding:10px 12px;display:grid;gap:4px}
+.stat b{font:500 17px/1.1 var(--f-mono);font-variant-numeric:tabular-nums}
+.stat span{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.sec{display:grid;gap:8px}
+.emojis{display:grid;gap:8px}
+.emo{display:grid;grid-template-columns:52px minmax(0,1fr);gap:12px;align-items:start;padding:10px 0;border-top:1px solid var(--line)}
+.emo .g{font-size:30px;line-height:1;text-align:center;overflow-wrap:anywhere}
+.emo .fn{font:500 11px/1 var(--f-mono);text-transform:uppercase;letter-spacing:.06em;padding:4px 6px;border-radius:6px;background:var(--surface-2);color:var(--muted)}
+.emo .fn.contradict{color:var(--neg);background:var(--neg-bg)}
+.emo .lit{color:var(--muted);font-size:13px;text-decoration:line-through;text-decoration-color:var(--line)}
+.emotions{display:grid;gap:6px}
+.em{display:grid;grid-template-columns:minmax(90px,140px) 1fr;gap:10px;align-items:center;font-size:13.5px}
+.bars{display:flex;gap:3px}
+.bars i{flex:1;height:8px;border-radius:2px;background:var(--surface-2)}
+.bars i.on{background:var(--accent)}
+.alts{margin:0;padding-left:18px;color:var(--fg)}
+.alts li{margin:2px 0}
+.muted{color:var(--muted)}
+details summary{cursor:pointer;color:var(--muted);font-size:13px}
+pre{background:var(--surface-2);border-radius:10px;padding:12px;overflow-x:auto;font:12px/1.5 var(--f-mono);max-height:340px}
+.thinking{display:grid;gap:10px;padding:8px 0}
+.thinking .bar{height:12px;border-radius:6px;background:linear-gradient(90deg,var(--surface-2),var(--line),var(--surface-2));background-size:200% 100%;animation:sh 1.2s linear infinite}
+@keyframes sh{to{background-position:-200% 0}}
+@media (prefers-reduced-motion:reduce){.thinking .bar{animation:none}}
+/* sheet */
+.sheet-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;min-width:860px;font-size:13.5px}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:var(--surface-2);position:sticky;top:0}
+td.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+tbody tr{cursor:pointer}
+tbody tr:hover,tbody tr.sel{background:var(--surface-2)}
+td .tag{font:600 11px/1 var(--f-body);text-transform:uppercase;letter-spacing:.06em;padding:5px 7px;border-radius:999px;white-space:nowrap}
+td.sent{max-width:340px;overflow-wrap:anywhere}
+.del{padding:5px 8px;font-size:12px;background:transparent}
+.del.confirm{color:var(--neg);border-color:var(--neg)}
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Emoji Sentiment Lab</h1>
+      <p class="sub">Type a message. Claude works out what the writer really means, emojis included, and adds the analysis to the sheet below.</p>
+    </div>
+  </header>
+
+  <div class="top">
+    <form class="panel" id="form" autocomplete="off">
+      <div class="field">
+        <label for="sentence">Message</label>
+        <textarea id="sentence" placeholder="e.g. Great, my flight got cancelled again 🙂👍" required></textarea>
+      </div>
+      <div class="field">
+        <label for="context">Context <span class="muted" style="font-weight:400">(optional)</span></label>
+        <input type="text" id="context" placeholder="Who is talking to whom, platform, previous message">
+        <span class="hint">Try the same message with and without context to see if the verdict shifts.</span>
+      </div>
+      <div class="row">
+        <button class="primary" id="go" type="submit">Analyze and add to sheet</button>
+        <span class="hint">⌘/Ctrl + Enter</span>
+      </div>
+      <div class="status" id="status" role="status"></div>
+      <div class="sec">
+        <h2>Try one</h2>
+        <div class="row" id="examples"></div>
+      </div>
+    </form>
+
+    <section class="panel" id="result" aria-live="polite">
+      <div class="empty">Your analysis will show up here. Pick a row in the sheet to see an earlier one.</div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <div class="sheet-head">
+      <div style="display:grid;gap:6px">
+        <h2>Analysis sheet</h2>
+        <span class="hint" id="count">Loading saved analyses…</span>
+      </div>
+      <div class="row">
+        <button id="xlsx" type="button">Download Excel (.xlsx)</button>
+      </div>
+    </div>
+    <div class="tbl">
+      <table>
+        <thead><tr><th>#</th><th>Message</th><th>Verdict</th><th>Polarity</th><th>Conf.</th><th>Sarcasm</th><th>Ambiguous</th><th>What it really means</th><th></th></tr></thead>
+        <tbody id="rows"><tr><td colspan="9" class="muted">No analyses yet. Type a message above to add the first row.</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+const SYSTEM_PROMPT = __SYSTEM_PROMPT__;
+const EXAMPLES = ["I got the job 😭","I got the job 😢","This meme has me dead 💀💀💀","Sure, do whatever you want 🙂","Okay. 😐","My code finally works and I have no idea why 🤡🎉"];
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const SENTS = ["positive","negative","mixed","neutral"];
+const sentClass = s => "s-" + (SENTS.includes(s) ? s : "neutral");
+const num = (v, d=0) => (typeof v === "number" && isFinite(v)) ? v : d;
+const fmtPol = v => (v > 0 ? "+" : "") + num(v).toFixed(2);
+
+let rows = [];          // [{id, sentence, context, createdAt, source, response}]
+let selectedId = null;
+let db = null, sample = null, downloads = null, col = null;
+
+function setStatus(msg, err=false){ const el=$("#status"); el.textContent=msg; el.className="status"+(err?" err":""); }
+
+function renderResult(rec){
+  const r = rec.response || {}; const v = r.final_verdict || {}; const t = r.text_emoji_interaction || {};
+  const a = r.ambiguity || {}; const to = r.text_only_analysis || {};
+  const pol = Math.max(-1, Math.min(1, num(v.polarity_score)));
+  const emos = (r.emoji_breakdown || []).map(e => `
+    <div class="emo"><div class="g">${esc(e.emoji)}</div>
+      <div style="display:grid;gap:4px;min-width:0">
+        <div class="row"><span class="fn ${esc(e.function)}">${esc((e.function||"").replace(/_/g," "))}</span><span class="muted" style="font-size:12px">${esc(e.position)}</span></div>
+        <div><span class="lit">${esc(e.literal_meaning)}</span> → <b>${esc(e.contextual_meaning)}</b></div>
+        <div class="muted" style="font-size:13px">${esc(e.reasoning)}</div>
+      </div></div>`).join("");
+  const feels = (r.emotions || []).map(e => {
+    const n = Math.max(0, Math.min(5, Math.round(num(e.intensity))));
+    return `<div class="em"><span>${esc(e.emotion)}</span><span class="bars" aria-label="intensity ${n} of 5">${[1,2,3,4,5].map(i=>`<i class="${i<=n?"on":""}"></i>`).join("")}</span></div>`;
+  }).join("");
+  const alts = (a.alternative_interpretations || []).map(x => `<li>${esc(x.reading)} <span class="muted">(${Math.round(num(x.likelihood)*100)}%)</span></li>`).join("");
+  $("#result").innerHTML = `
+    <div><p class="quote">“${esc(rec.sentence)}”</p>${rec.context ? `<div class="ctx">Context: ${esc(rec.context)}</div>` : ""}</div>
+    <div class="verdict"><span class="pill ${sentClass(v.intended_sentiment)}">${esc(v.intended_sentiment || "unknown")}</span><p class="summary">${esc(v.one_line_summary)}</p></div>
+    <div class="meter"><div class="track"><span class="dot" style="left:${(pol+1)*50}%"></span></div><div class="scale"><span>−1 very negative</span><span>0</span><span>+1 very positive</span></div></div>
+    <div class="stats">
+      <div class="stat"><b>${fmtPol(pol)}</b><span>Polarity</span></div>
+      <div class="stat"><b>${Math.round(num(v.confidence)*100)}%</b><span>Confidence</span></div>
+      <div class="stat"><b>${t.sarcasm_or_irony_detected ? "Yes" : "No"}</b><span>Sarcasm</span></div>
+      <div class="stat"><b>${esc(to.sentiment || "–")}</b><span>Words only</span></div>
+    </div>
+    <div class="sec"><h2>How text and emoji combine · ${esc(t.relationship || "")}</h2><div>${esc(t.explanation)}</div>
+      <div class="muted" style="font-size:13px">Words alone: ${esc(to.reasoning)}</div></div>
+    ${emos ? `<div class="sec"><h2>Emoji breakdown</h2><div class="emojis">${emos}</div></div>` : ""}
+    ${feels ? `<div class="sec"><h2>Emotions</h2><div class="emotions">${feels}</div></div>` : ""}
+    <div class="sec"><h2>${a.is_ambiguous ? "Ambiguous: other readings" : "Other readings"}</h2>
+      ${alts ? `<ul class="alts">${alts}</ul>` : `<div class="muted">None given.</div>`}
+      ${a.context_that_would_resolve_it ? `<div style="font-size:13.5px"><b>Would settle it:</b> ${esc(a.context_that_would_resolve_it)}</div>` : ""}
+      ${a.audience_sensitivity ? `<div style="font-size:13.5px"><b>Audience:</b> ${esc(a.audience_sensitivity)}</div>` : ""}</div>
+    <details><summary>Full JSON response</summary><pre>${esc(JSON.stringify(r, null, 2))}</pre></details>`;
+}
+
+function renderRows(){
+  $("#count").textContent = rows.length ? `${rows.length} ${rows.length===1?"analysis":"analyses"} saved. Click a row to see it above.` : "No analyses saved yet.";
+  if (!rows.length){ $("#rows").innerHTML = `<tr><td colspan="9" class="muted">No analyses yet. Type a message above to add the first row.</td></tr>`; return; }
+  $("#rows").innerHTML = rows.map((rec, i) => {
+    const r = rec.response || {}, v = r.final_verdict || {};
+    return `<tr data-id="${esc(rec.id)}" class="${rec.id===selectedId?"sel":""}">
+      <td class="num">${rows.length - i}</td>
+      <td class="sent">${esc(rec.sentence)}${rec.context?`<div class="muted" style="font-size:12px">${esc(rec.context)}</div>`:""}</td>
+      <td><span class="tag ${sentClass(v.intended_sentiment)}">${esc(v.intended_sentiment||"?")}</span></td>
+      <td class="num">${fmtPol(num(v.polarity_score))}</td>
+      <td class="num">${Math.round(num(v.confidence)*100)}%</td>
+      <td>${r.text_emoji_interaction?.sarcasm_or_irony_detected ? "Yes" : "No"}</td>
+      <td>${r.ambiguity?.is_ambiguous ? "Yes" : "No"}</td>
+      <td class="muted">${esc(v.one_line_summary)}</td>
+      <td>${db ? `<button class="del" type="button" data-del="${esc(rec.id)}" aria-label="Delete row">Delete</button>` : ""}</td></tr>`;
+  }).join("");
+}
+
+function select(id){
+  const rec = rows.find(r => r.id === id); if (!rec) return;
+  selectedId = id; renderResult(rec); renderRows();
+}
+
+$("#rows").addEventListener("click", async e => {
+  const del = e.target.closest("[data-del]");
+  if (del){
+    e.stopPropagation();
+    if (!del.classList.contains("confirm")){ del.classList.add("confirm"); del.textContent = "Confirm"; setTimeout(()=>{ if(del.isConnected){del.classList.remove("confirm"); del.textContent="Delete";} }, 3000); return; }
+    try { await col.doc(del.dataset.del).delete(); setStatus("Row deleted."); } catch(err){ setStatus("Couldn't delete that row: " + (err.message||err.code), true); }
+    return;
+  }
+  const tr = e.target.closest("tr[data-id]"); if (tr) select(tr.dataset.id);
+});
+
+function normalize(resp, sentence){
+  if (!resp || typeof resp !== "object" || !resp.final_verdict) throw new Error("The reply didn't match the expected format.");
+  resp.input = resp.input || sentence;
+  return resp;
+}
+
+async function analyze(sentence, context){
+  const user = `Analyze the sentiment of the following message.\n\nMessage: "${sentence}"\n\nOptional context (leave blank if none): ${context || ""}`;
+  const input = `${SYSTEM_PROMPT}\n\n---\n\n${user}\n\nReturn only the JSON object.`;
+  return normalize(await sample.json(input, { modelTier: "default" }), sentence);
+}
+
+$("#form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const sentence = $("#sentence").value.trim(), context = $("#context").value.trim();
+  if (!sentence){ setStatus("Type a message to analyze.", true); return; }
+  if (!sample){ setStatus("Analysis isn't available in this view. Open the page on claude.ai while signed in.", true); return; }
+  $("#go").disabled = true; setStatus("Claude is reading the message…");
+  $("#result").innerHTML = `<p class="quote">“${esc(sentence)}”</p><div class="thinking"><div class="bar" style="width:70%"></div><div class="bar"></div><div class="bar" style="width:85%"></div><div class="bar" style="width:55%"></div></div>`;
+  try {
+    const response = await analyze(sentence, context);
+    const rec = { sentence, context, createdAt: new Date().toISOString(), source: "app", response };
+    let id = "local-" + Date.now();
+    if (col){
+      try { const ref = col.doc(); await ref.set(rec); id = ref.id; setStatus("Added to the sheet."); }
+      catch(err){ setStatus("Analyzed, but couldn't save to the sheet: " + (err.message||err.code), true); rows.unshift({id, ...rec}); }
+    } else { rows.unshift({id, ...rec}); setStatus("Analyzed. Saving isn't available here, so this row lasts until you leave the page."); }
+    selectedId = id; renderResult({id, ...rec}); renderRows();
+  } catch(err){
+    const msg = err.code === "rate_limited" ? "Too many requests right now. Wait a minute and try again."
+      : err.code === "not_granted" ? "Analysis needs your permission. Allow Claude for this page in its permissions menu."
+      : "Analysis failed: " + (err.message || err.code || err);
+    setStatus(msg, true);
+    $("#result").innerHTML = `<div class="empty">${esc(msg)}</div>`;
+  } finally { $("#go").disabled = false; }
+});
+
+$("#sentence").addEventListener("keydown", e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) $("#form").requestSubmit(); });
+$("#examples").innerHTML = EXAMPLES.map(s => `<button type="button" class="chip">${esc(s)}</button>`).join("");
+$("#examples").addEventListener("click", e => { const b = e.target.closest(".chip"); if (b){ $("#sentence").value = b.textContent; $("#sentence").focus(); } });
+
+function sheetRows(){
+  return rows.slice().reverse().map((rec, i) => {
+    const r = rec.response || {}, v = r.final_verdict || {}, t = r.text_emoji_interaction || {}, a = r.ambiguity || {};
+    return {
+      "#": i + 1,
+      "Date": rec.createdAt ? rec.createdAt.replace("T"," ").slice(0,16) : "",
+      "Message": rec.sentence, "Context": rec.context || "",
+      "Intended sentiment": v.intended_sentiment || "", "Polarity (-1..1)": num(v.polarity_score), "Confidence (0..1)": num(v.confidence),
+      "Sarcasm/irony": t.sarcasm_or_irony_detected ? "yes" : "no", "Ambiguous": a.is_ambiguous ? "yes" : "no",
+      "Words-only sentiment": r.text_only_analysis?.sentiment || "", "Surface differs from intent": v.surface_vs_intended_differs ? "yes" : "no",
+      "Text/emoji relationship": t.relationship || "",
+      "Emojis (meaning · function)": (r.emoji_breakdown||[]).map(e => `${e.emoji} ${e.contextual_meaning} · ${e.function}`).join("\n"),
+      "Emotions (1-5)": (r.emotions||[]).map(e => `${e.emotion} ${e.intensity}`).join(", "),
+      "What it really means": v.one_line_summary || "", "Explanation": t.explanation || "",
+      "Other readings": (a.alternative_interpretations||[]).map(x => `${x.reading} (${Math.round(num(x.likelihood)*100)}%)`).join("\n"),
+      "Would settle it": a.context_that_would_resolve_it || "", "Audience sensitivity": a.audience_sensitivity || "",
+      "Human sentiment": "", "Human polarity": "", "Human sarcasm": "", "Notes": "",
+      "Full JSON": JSON.stringify(r)
+    };
+  });
+}
+
+$("#xlsx").addEventListener("click", async () => {
+  if (!rows.length){ setStatus("The sheet is empty. Analyze a message first.", true); return; }
+  if (!window.XLSX){ setStatus("The Excel library didn't load. Reload the page and try again.", true); return; }
+  if (!downloads){ setStatus("Downloads aren't available in this view.", true); return; }
+  const ws = XLSX.utils.json_to_sheet(sheetRows());
+  ws["!cols"] = [4,16,42,24,12,10,10,10,10,12,12,14,46,30,46,60,40,30,40,12,12,12,24,40].map(w => ({wch:w}));
+  ws["!freeze"] = {xSplit:0, ySplit:1};
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Analyses");
+  const data = XLSX.write(wb, {bookType:"xlsx", type:"array"});
+  try {
+    await downloads.save({ filename: `emoji-sentiment-analyses-${new Date().toISOString().slice(0,10)}.xlsx`, data: new Blob([data], {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}) });
+    setStatus("Excel file saved.");
+  } catch(err){ if (err.code !== "dismissed" && err.code !== "declined") setStatus("Couldn't save the file: " + (err.message||err.code), true); }
+});
+
+(async () => {
+  const c = window.claude;
+  if (!c?.use){ $("#count").textContent = "Open this page on claude.ai to analyze and save messages."; return; }
+  [sample, downloads, db] = await Promise.all([c.use("sample"), c.use("downloads"), c.use("db")]);
+  if (!sample) setStatus("Analysis isn't available in this view.", true);
+  if (!downloads) $("#xlsx").disabled = true;
+  if (!db){ $("#count").textContent = "Saving isn't available in this view. New analyses last until you leave the page."; return; }
+  col = db.collection("analyses");
+  const timer = setTimeout(() => { if (!rows.length) $("#count").textContent = "Still loading the sheet…"; }, 10000);
+  col.orderBy("createdAt", "desc").limit(1000).onSnapshot(snap => {
+    clearTimeout(timer);
+    const local = rows.filter(r => r.id.startsWith("local-"));
+    rows = local.concat(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    if (!selectedId && rows.length){ selectedId = rows[0].id; renderResult(rows[0]); }
+    else if (selectedId && !rows.some(r => r.id === selectedId)){ selectedId = rows[0]?.id || null; if (selectedId) renderResult(rows[0]); }
+    renderRows();
+  }, err => { clearTimeout(timer); $("#count").textContent = "Couldn't load the sheet: " + (err.message || err.code); });
+})();
+</script>
