@@ -1,0 +1,26 @@
+id,category,sentence,model_sentiment,model_polarity,sarcasm_detected,confidence,is_ambiguous,text_only_sentiment,surface_vs_intended_differs,summary
+1,baseline_positive,Just got promoted!! 🎉🥳,positive,0.95,False,0.97,False,positive,False,The writer is thrilled about their promotion.
+2,baseline_negative,Lost my wallet today 😞,negative,-0.6,False,0.95,False,negative,False,The writer is upset about losing their wallet.
+3,sarcasm,"Great, my flight got cancelled again 🙂👍",negative,-0.7,True,0.9,False,negative,True,The writer is fed up that their flight was cancelled yet again.
+4,sarcasm,Love waking up at 5am for a meeting that could've been an email 🙃,negative,-0.65,True,0.93,False,negative,True,"The writer is annoyed about an early, pointless meeting."
+5,slang_emoji,This meme has me dead 💀💀💀,positive,0.8,False,0.95,False,positive,True,The writer finds the meme hilarious.
+6,slang_emoji,She really showed up in that outfit 🔥🔥,positive,0.8,False,0.88,False,positive,False,The writer thinks she looked great in that outfit.
+7,positive_with_crying,I got into my dream university 😭😭😭,positive,0.9,False,0.93,False,positive,True,The writer is overwhelmed with happiness about getting in.
+8,negative_with_laughing,Failed my driving test for the third time 😂,negative,-0.4,True,0.75,False,negative,True,The writer is laughing at themselves to cope with failing again.
+9,passive_aggressive,"Sure, do whatever you want 🙂",negative,-0.45,True,0.7,True,neutral,True,The writer disagrees but is pretending not to care.
+10,passive_aggressive,Thanks for letting me know so early 👍,negative,-0.3,True,0.55,True,positive,True,Most likely: the writer is annoyed they were told late.
+11,mixed,Last day at the job I loved for 6 years 🥲❤️,mixed,0.2,False,0.88,False,mixed,False,The writer is sad to leave but grateful for a job they loved.
+12,mixed,Moving to a new city tomorrow 😬✨,mixed,0.1,False,0.82,False,neutral,True,The writer is nervous but excited about moving.
+13,mockery,Oh you think you can beat me? 🤡,negative,-0.3,False,0.6,True,negative,False,The writer is mocking the other person's chances of winning.
+14,ambiguous,Okay. 😐,neutral,-0.2,False,0.45,True,neutral,False,"The writer is acknowledging something without enthusiasm, possibly displeased."
+15,ambiguous,We need to talk 😶,negative,-0.35,False,0.55,True,negative,False,"The writer wants a serious conversation, likely about a problem."
+16,emoji_only,😤😤😤,mixed,-0.1,False,0.4,True,neutral,False,The writer feels something strongly: either angry or fired up.
+17,emoji_only,🥺👉👈,positive,0.3,False,0.7,False,neutral,False,The writer is shyly asking for something or being cutely bashful.
+18,softening,You forgot my birthday 😅 it's fine,negative,-0.35,True,0.65,True,mixed,True,The writer is hurt but trying not to make a big deal of it.
+19,intensifying,Worst customer service ever 😡😡😡🤬,negative,-0.95,False,0.97,False,negative,False,The writer is furious about terrible customer service.
+20,cultural,Thank you so much 🙏,positive,0.75,False,0.93,False,positive,False,The writer is grateful.
+21,coping_humor,My code finally works and I have no idea why 🤡🎉,positive,0.45,True,0.75,False,mixed,True,The writer is glad it works and laughing at themselves for not knowing why.
+22,contradict_text_neg,I hate how much I love this song 😍,positive,0.85,False,0.92,False,positive,True,The writer loves this song so much it's almost annoying.
+23,sad_genuine,Miss you grandma 😢🕊️,negative,-0.5,False,0.85,False,negative,False,"The writer misses their grandmother, likely after her death."
+24,upside_down,Exams start tomorrow and I haven't studied 🙃🙃,negative,-0.5,True,0.85,False,negative,True,The writer is panicking about unprepared exams and joking about it.
+25,no_emoji_control,"Great, my flight got cancelled again",negative,-0.7,True,0.85,False,negative,True,The writer is fed up that their flight was cancelled again.
