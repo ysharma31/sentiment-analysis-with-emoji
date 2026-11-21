@@ -112,7 +112,7 @@ td.sent{max-width:340px;overflow-wrap:anywhere}
   <header>
     <div>
       <h1>Emoji Sentiment Lab</h1>
-      <p class="sub">Type a message. Claude works out what the writer really means, emojis included, and adds the analysis to the sheet below.</p>
+      <p class="sub">Type a message, pick a model, and see what the writer really means, emojis included. Every analysis is added to the sheet below.</p>
     </div>
   </header>
 
@@ -131,6 +131,8 @@ td.sent{max-width:340px;overflow-wrap:anywhere}
         <label for="model">Model</label>
         <select id="model"></select>
         <span class="hint">Each model gets its own sheet in the Excel download.</span>
+        <div class="row" id="checkRow" hidden><button type="button" id="checkModels">Check models</button><span class="hint">Asks each provider whether the model IDs exist.</span></div>
+        <div id="checkOut" class="hint" style="display:grid;gap:2px"></div>
       </div>
       <div class="row">
         <button class="primary" id="go" type="submit">Analyze and add to sheet</button>
@@ -179,12 +181,13 @@ td.sent{max-width:340px;overflow-wrap:anywhere}
 <script>
 const SYSTEM_PROMPT = "You are an expert in sentiment analysis who specializes in informal, emoji-rich digital\ncommunication (texts, chats, social media, reviews). Your job is to work out the\nsentiment the writer ACTUALLY intends, not the surface sentiment of individual words\nor emojis.\n\nKey principles:\n1. Emojis are not fixed labels. Their meaning depends on context, platform, age group,\n   and culture. Examples: 💀 often means \"I'm dying laughing\", not death. 🙂 can be\n   passive-aggressive. 🙃 often signals irony or exasperation. 😭 is often joy or\n   overwhelm, not sadness. 🔥 is usually praise. 🤡 is usually mockery.\n2. Text and emojis interact. An emoji can REINFORCE, INTENSIFY, SOFTEN, CONTRADICT\n   (sarcasm or irony), or CHANGE THE TOPIC of the text's sentiment. Always identify\n   which one is happening.\n3. Look for sarcasm, irony, humor, passive aggression, politeness masking, coping\n   humor, and mixed emotions. Real messages often hold more than one feeling.\n4. Repetition (😂😂😂), placement (start, middle, end), and punctuation (!!!, ..., ?!)\n   carry meaning. Account for them.\n5. Never invent context that isn't in the sentence. If the intent is truly ambiguous,\n   say so, list the plausible readings, and lower your confidence. Don't force a\n   single answer.\n6. Separate what is stated from what is inferred. Mark every inference as an inference.\n\nFor every input, carry out this analysis in order:\n\nSTEP 1 - Text only: Remove the emojis and judge the sentiment of the words alone.\nSTEP 2 - Emoji breakdown: For each emoji (or emoji group), give:\n         - its literal or common dictionary meaning\n         - its most likely meaning in THIS context, and why\n         - its function: reinforce / intensify / soften / contradict / add new emotion\nSTEP 3 - Interaction: Explain how the text and emojis combine. Is the overall meaning\n         different from the text-only reading? Is there sarcasm, irony, or a mask?\nSTEP 4 - Emotions: List the specific emotions present (e.g. joy, amusement,\n         frustration, sadness, affection, anxiety, embarrassment, pride, contempt),\n         each with an intensity from 1 to 5.\nSTEP 5 - Verdict: Give the overall intended sentiment, a polarity score, and your\n         confidence.\nSTEP 6 - Ambiguity check: Give alternative readings, what extra context would settle\n         them, and which audiences might read it differently.\n\nRespond ONLY with valid JSON in exactly this schema:\n\n{\n  \"input\": \"<the original sentence>\",\n  \"text_only_analysis\": {\n    \"sentiment\": \"positive | negative | neutral | mixed\",\n    \"reasoning\": \"<1-2 sentences>\"\n  },\n  \"emoji_breakdown\": [\n    {\n      \"emoji\": \"<emoji or repeated group>\",\n      \"position\": \"start | middle | end\",\n      \"literal_meaning\": \"<common or dictionary meaning>\",\n      \"contextual_meaning\": \"<meaning in this sentence>\",\n      \"function\": \"reinforce | intensify | soften | contradict | add_new_emotion\",\n      \"reasoning\": \"<why>\"\n    }\n  ],\n  \"text_emoji_interaction\": {\n    \"relationship\": \"aligned | amplified | softened | contradictory | mixed\",\n    \"sarcasm_or_irony_detected\": true,\n    \"explanation\": \"<how the pieces combine to form the real meaning>\"\n  },\n  \"emotions\": [\n    { \"emotion\": \"<name>\", \"intensity\": 1 }\n  ],\n  \"final_verdict\": {\n    \"intended_sentiment\": \"positive | negative | neutral | mixed\",\n    \"polarity_score\": 0.0,\n    \"surface_vs_intended_differs\": true,\n    \"one_line_summary\": \"<what the writer really means, in plain words>\",\n    \"confidence\": 0.0\n  },\n  \"ambiguity\": {\n    \"is_ambiguous\": false,\n    \"alternative_interpretations\": [\n      { \"reading\": \"<alternative meaning>\", \"likelihood\": 0.0 }\n    ],\n    \"context_that_would_resolve_it\": \"<e.g. relationship between speakers, prior message>\",\n    \"audience_sensitivity\": \"<how different ages, cultures, or platforms might read it>\"\n  }\n}\n\nField rules:\n- polarity_score: a number from -1.0 (very negative) to +1.0 (very positive).\n- confidence: a number from 0.0 to 1.0. Use below 0.6 when the intent is truly ambiguous.\n- Emotion intensity: a whole number from 1 to 5.\n- Alternative likelihoods are numbers from 0.0 to 1.0.\n- emotions and emoji_breakdown may contain as many entries as needed.\n- If there are no emojis, return an empty emoji_breakdown and say so in the interaction.";
 const EXAMPLES = ["I got the job 😭","I got the job 😢","This meme has me dead 💀💀💀","Sure, do whatever you want 🙂","Okay. 😐","My code finally works and I have no idea why 🤡🎉"];
-const MODELS = [
+let MODELS = [
   { id: "claude-opus-5-5", label: "Claude Opus 5.5", tier: "complex" },
   { id: "claude-fable-5-2", label: "Claude Fable 5.2", tier: "complex" },
   { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", tier: "default" },
   { id: "claude-haiku-5-5", label: "Claude Haiku 5.5", tier: "quick" },
 ];
+const LOCAL = !!window.LOCAL_API;   // served by app/local/server.py: calls go to the local server instead of claude.ai
 const TIER_NAMES = { complex: "most capable", default: "standard", quick: "fastest" };
 // Label for the model that actually answered a row. A named model can fall back to its tier silently.
 function modelLabel(rec){
@@ -301,6 +304,12 @@ function parseJSON(text){
   return JSON.parse(t.slice(a, b + 1));
 }
 async function analyze(sentence, context, m){
+  if (LOCAL){
+    const r = await fetch("/api/analyze", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ sentence, context, model: m.id }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw Object.assign(new Error(j.error || `Server error ${r.status}`), { code: j.code });
+    return j;
+  }
   const user = `Analyze the sentiment of the following message.\n\nMessage: "${sentence}"\n\nOptional context (leave blank if none): ${context || ""}`;
   const input = `${SYSTEM_PROMPT}\n\n---\n\n${user}\n\nReturn only the JSON object.`;
   const res = await sample(input, { model: m.id, modelTier: m.tier });
@@ -323,6 +332,7 @@ function failMsg(err){
   return err.code === "rate_limited" ? "Too many requests right now. Wait a minute and try again."
     : err.code === "not_granted" ? "Analysis needs your permission. Allow Claude for this page in its permissions menu."
     : err.code === "sampling_disabled" ? "Your access to this model is turned off. Pick another model."
+    : err.code === "no_key" ? err.message
     : "Analysis failed: " + (err.message || err.code || err);
 }
 
@@ -331,7 +341,7 @@ $("#form").addEventListener("submit", async e => {
   const sentence = $("#sentence").value.trim(), context = $("#context").value.trim();
   if (!sentence){ setStatus("Type a message to analyze.", true); return; }
   if (!sample){ setStatus("Analysis isn't available in this view. Open the page on claude.ai while signed in.", true); return; }
-  $("#go").disabled = true; setStatus("Claude is reading the message…");
+  $("#go").disabled = true; setStatus(`${chosenModel().label} is reading the message…`);
   $("#result").innerHTML = `<p class="quote">“${esc(sentence)}”</p><div class="thinking"><div class="bar" style="width:70%"></div><div class="bar"></div><div class="bar" style="width:85%"></div><div class="bar" style="width:55%"></div></div>`;
   const m = chosenModel();
   try {
@@ -348,8 +358,16 @@ $("#form").addEventListener("submit", async e => {
   } finally { $("#go").disabled = false; }
 });
 
-$("#model").innerHTML = MODELS.map(m => `<option value="${m.id}">${esc(m.label)}</option>`).join("");
-try { const saved = localStorage.getItem("esl-model"); if (MODELS.some(m => m.id === saved)) $("#model").value = saved; } catch {}
+function renderModels(){
+  const groups = new Map();
+  MODELS.forEach(m => { const g = m.providerLabel || "Anthropic"; if (!groups.has(g)) groups.set(g, []); groups.get(g).push(m); });
+  const opt = m => `<option value="${esc(m.id)}" ${m.available === false ? "disabled" : ""}>${esc(m.label)}${m.available === false ? " (add API key)" : ""}</option>`;
+  $("#model").innerHTML = groups.size > 1 ? [...groups].map(([g, ms]) => `<optgroup label="${esc(g)}">${ms.map(opt).join("")}</optgroup>`).join("") : MODELS.map(opt).join("");
+  let saved = null; try { saved = localStorage.getItem("esl-model"); } catch {}
+  const ok = MODELS.find(m => m.id === saved && m.available !== false) || MODELS.find(m => m.available !== false);
+  if (ok) $("#model").value = ok.id;
+}
+renderModels();
 $("#model").addEventListener("change", () => { try { localStorage.setItem("esl-model", $("#model").value); } catch {} });
 $("#sentence").addEventListener("keydown", e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) $("#form").requestSubmit(); });
 $("#examples").innerHTML = EXAMPLES.map(s => `<button type="button" class="chip">${esc(s)}</button>`).join("");
@@ -429,6 +447,7 @@ function sheetRows(list){
 
 $("#xlsx").addEventListener("click", async () => {
   if (!rows.length){ setStatus("The sheet is empty. Analyze a message first.", true); return; }
+  if (LOCAL){ location.href = "/api/export.xlsx"; setStatus("Downloading. The same workbook is also kept up to date in app/local/data/analyses.xlsx."); return; }
   if (!window.XLSX){ setStatus("The Excel library didn't load. Reload the page and try again.", true); return; }
   if (!downloads){ setStatus("Downloads aren't available in this view.", true); return; }
   const wb = XLSX.utils.book_new(), used = new Set();
@@ -466,15 +485,44 @@ $("#xlsx").addEventListener("click", async () => {
   } catch(err){ if (err.code !== "dismissed" && err.code !== "declined") setStatus("Couldn't save the file: " + (err.message||err.code), true); }
 });
 
+async function initLocal(){
+  const cfg = await (await fetch("/api/config")).json();
+  MODELS = cfg.models; renderModels();
+  sample = true; downloads = true; db = true;
+  $("#checkRow").hidden = false;
+  $("#checkModels").addEventListener("click", async () => {
+    $("#checkModels").disabled = true; $("#checkOut").textContent = "Checking with each provider…";
+    try {
+      const res = await (await fetch("/api/check")).json();
+      const icon = { ok: "✓", missing: "✗", no_key: "–", error: "!" };
+      $("#checkOut").innerHTML = res.map(r => `<div><b>${icon[r.status] || "?"}</b> ${esc(r.label)} <span class="muted">(${esc(r.id)})</span>: ${esc(r.message)}</div>`).join("");
+    } catch(err){ $("#checkOut").textContent = "Check failed: " + err.message; }
+    $("#checkModels").disabled = false;
+  });
+  let listener = null;
+  const refresh = async () => { const r = await fetch("/api/rows"); if (r.ok && listener) listener({ docs: (await r.json()).map(d => ({ id: d.id, data: () => d })) }); };
+  col = {
+    doc(id){ return {
+      id: id || "",
+      async set(rec){ const r = await fetch("/api/rows", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(rec) }); const j = await r.json(); if (!r.ok) throw new Error(j.error || "Save failed"); this.id = j.id; await refresh(); },
+      async delete(){ const r = await fetch("/api/rows/" + encodeURIComponent(id), { method: "DELETE" }); if (!r.ok) throw new Error("Delete failed"); await refresh(); },
+    }; },
+    orderBy(){ return this; }, limit(){ return this; },
+    onSnapshot(f){ listener = f; refresh(); return () => { listener = null; }; },
+  };
+}
+
 (async () => {
   const c = window.claude;
-  if (!c?.use){ $("#count").textContent = "Open this page on claude.ai to analyze and save messages."; return; }
-  [sample, downloads, db] = await Promise.all([c.use("sample"), c.use("downloads"), c.use("db")]);
+  if (LOCAL){
+    try { await initLocal(); } catch(err){ setStatus("Couldn't reach the local server: " + err.message, true); return; }
+  } else if (!c?.use){ $("#count").textContent = "Open this page on claude.ai to analyze and save messages."; return; }
+  if (!LOCAL) [sample, downloads, db] = await Promise.all([c.use("sample"), c.use("downloads"), c.use("db")]);
   if (!sample) setStatus("Analysis isn't available in this view.", true);
   updateBatchInfo();
   if (!downloads) $("#xlsx").disabled = true;
   if (!db){ $("#count").textContent = "Saving isn't available in this view. New analyses last until you leave the page."; return; }
-  col = db.collection("analyses");
+  if (!LOCAL) col = db.collection("analyses");
   const timer = setTimeout(() => { if (!rows.length) $("#count").textContent = "Still loading the sheet…"; }, 10000);
   col.orderBy("createdAt", "desc").limit(1000).onSnapshot(snap => {
     clearTimeout(timer);
